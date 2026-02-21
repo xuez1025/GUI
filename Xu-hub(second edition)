@@ -1440,6 +1440,24 @@ Tabs.Fun:Button({
 })
 
     Tabs.Other:Section({ Title = "其他" })
+
+Tabs.Other:Button({
+    Title = "FLY GUI",
+    Callback = function()
+
+        -- 通知
+        WindUI:Notify({
+            Title = "FLY GUI",
+            Content = "正在載入 FLY GUI...",
+            Duration = 3
+        })
+
+        -- 執行 FLY GUI
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/xuez1025/code/refs/heads/main/FLY%20GUI"))()
+
+    end
+})
+
 end
 
 -- ================================================================
