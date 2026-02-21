@@ -1,182 +1,207 @@
 -- ================= 服務 =================
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local Players         = game:GetService("Players")
+local RunService      = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
-local HttpService = game:GetService("HttpService")
-local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
+local HttpService     = game:GetService("HttpService")
+local UserInputService= game:GetService("UserInputService")
+local Workspace       = game:GetService("Workspace")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local Lighting = game:GetService("Lighting")
-local TweenService = game:GetService("TweenService")
-local player = Players.LocalPlayer
+local Lighting        = game:GetService("Lighting")
+local TweenService    = game:GetService("TweenService")
+
+local player      = Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local PlaceId     = game.PlaceId
+local Camera      = workspace.CurrentCamera
+local Terrain     = workspace:FindFirstChildWhichIsA("Terrain")
 
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
-local PlaceId = game.PlaceId
-local Camera = workspace.CurrentCamera
-local Terrain = workspace:FindFirstChildWhichIsA("Terrain")
 
 -- ================= 世界判斷 =================
 local currentPlaceId = game.PlaceId
-local World1 = currentPlaceId == 2753915549 or currentPlaceId == 85211729168715
-local World2 = currentPlaceId == 4442272183 or currentPlaceId == 79091703265657
-local World3 = currentPlaceId == 7449423635 or currentPlaceId == 100117331123089
+local World1 = currentPlaceId == 2753915549  or currentPlaceId == 85211729168715
+local World2 = currentPlaceId == 4442272183  or currentPlaceId == 79091703265657
+local World3 = currentPlaceId == 7449423635  or currentPlaceId == 100117331123089
 
 local WindUI = loadstring(game:HttpGet(
     "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
 ))()
 
 -- ================= 全域狀態 =================
-local ESP_ENABLED = false
-local ESP_COLOR = Color3.fromRGB(30, 30, 30)
-local TEXT_COLOR = Color3.fromRGB(255, 255, 255)
+local ESP_ENABLED  = false
+local ESP_COLOR    = Color3.fromRGB(30, 30, 30)
+local TEXT_COLOR   = Color3.fromRGB(255, 255, 255)
 
 local NOCLIP_ENABLED = false
-local noclipConn = nil
+local noclipConn     = nil
 
 local waterWalkEnabled = false
-local platform = nil
-local waterWalkConn = nil
+local platform         = nil
+local waterWalkConn    = nil
 
-local FlyEnabled = false
-local NoclipEnabled = false
-local CamlockEnabled = false
-local FlySpeed = 350
-local TargetPlayer = nil
-local CurrentTargetPosition = nil
+local CamlockEnabled      = false
+local TargetPlayer        = nil
+
+-- ── 飛向玩家系統（FlyToPlayer）────────────────────────────────────
+-- 完全獨立：不與 SmartTeleport / 傳送地圖共用任何狀態
+local FTP = {
+    Enabled     = false,   -- 系統開關
+    Speed       = 350,     -- 飛行速度（格/秒）
+    Conn        = nil,     -- RenderStepped 連線
+    NoclipConn  = nil,     -- Stepped Noclip 連線
+}
+
+-- ── 飛向座標系統（FlyToCoord / SmartTeleport）─────────────────────
+-- 完全獨立：只由 SmartTeleport() 操作，不影響 FlyToPlayer
+local FTC = {
+    Enabled     = false,   -- 系統開關
+    Speed       = 350,     -- 飛行速度（格/秒）
+    Target      = nil,     -- 目標 Vector3 座標
+    Conn        = nil,     -- RenderStepped 連線
+    NoclipConn  = nil,     -- Stepped Noclip 連線
+}
 
 local AutoBuso = true
-local AutoV3 = { Enabled = false, _task = nil }
-local AutoV4 = false
+local AutoV3   = { Enabled = false, _task = nil }
+local AutoV4   = false
 local autoV4Connection = nil
 
 local LOWGRAPHICS_ENABLED = false
-local AntiAFK_ENABLED = false
-local AntiAFK_Connection = nil
+local AntiAFK_ENABLED     = false
+local AntiAFK_Connection  = nil
 
-local selectedType = "Melee"
-local autoEquipEnabled = false
+-- ── 武裝 / 裝備 ──────────────────────────────────────────────────
+local selectedType      = "Melee"   -- 只宣告一次
+local autoEquipEnabled  = false     -- 只宣告一次
+local autoBuddhaZEnabled= false
+local autoZThread       = nil
+local originalToolType  = nil
 
+-- ── 移動滑行 ──────────────────────────────────────────────────────
 local SLIDE_MAGNITUDE = 200
-local ACCELERATION = 12
-local DECELERATION = 18
-local moving = false
-local moveConn = nil
-local moveKeys = { W = false, A = false, S = false, D = false }
+local ACCELERATION    = 12
+local DECELERATION    = 18
+local moving          = false
+local moveConn        = nil
+local moveKeys        = { W = false, A = false, S = false, D = false }
 local currentVelocity = Vector3.zero
-local wasMoving = false
-local slideLocked = false
-local ACTIVE_SEAT = nil
+local wasMoving       = false
+local slideLocked     = false
+local ACTIVE_SEAT     = nil
 local ORIGINAL_SEAT_SPEED = nil
 
+-- ── 跳躍 ──────────────────────────────────────────────────────────
 local JumpSettings = { Enabled = false, JumpPower = 100, MaxJumpPower = 500 }
 
-local MAX_ZOOM = 10000
-local MIN_ZOOM = 1000
-local STEP = 100
+-- ── 視角縮放 ──────────────────────────────────────────────────────
+local MAX_ZOOM    = 10000
+local MIN_ZOOM    = 1000
+local STEP        = 100
 local CurrentZoom = 1000
 
+-- ── 碰撞箱 ────────────────────────────────────────────────────────
 local Hitbox = { Enabled = false, Size = 1, Transparency = 0.5, Connections = {} }
 
-local FlyTP = { Enabled = false, HoverHeight = 10, SearchRange = 500 }
+-- ── TP 到 NPC / 拉怪 ──────────────────────────────────────────────
+local FlyTP  = { Enabled = false, HoverHeight = 10, SearchRange = 500 }
 local BringNPC = { Enabled = false, PullRange = 100 }
-local flyConn = nil
+local flyConn  = nil
 local pullConn = nil
-local targetNPC = nil
+local targetNPC= nil
 
+-- ── 船速 ──────────────────────────────────────────────────────────
 local BoatSpeedSettings = { Enabled = false, Speed = 200, MaxSpeed = 500 }
 
+-- ── 地城自動傳送 ──────────────────────────────────────────────────
 local AutoTeleportEnabled = false
-local isTeleporting = false
-local CHECK_INTERVAL = 1
-local DETECTION_RADIUS = 1000
+local isTeleporting       = false
+local CHECK_INTERVAL      = 1
+local DETECTION_RADIUS    = 1000
 local hrp, humanoid
 
-local ATTACK_INTERVAL = 0.01
+-- ── FastAttack ────────────────────────────────────────────────────
+local ATTACK_INTERVAL  = 0.01
 local RANGE_MULTIPLIER = 1000
-local attackTimer = 0
-
+local attackTimer      = 0
 _G.FastAttack = true
 getgenv().AUTO_ATTACK_ENABLED = false
 
 local Settings = {
-    AutoClick = true,
-    Distance = 50,
-    AttackInterval = 0.01,
-    MaxTargets = 20,
+    AutoClick     = true,
+    Distance      = 50,
+    AttackInterval= 0.01,
+    MaxTargets    = 20,
 }
 
--- ================= 角色快取 =================
+-- ── 角色快取 ──────────────────────────────────────────────────────
 local character, root
 
 local function setupCharacter(char)
     character = char
-    root = char:WaitForChild("HumanoidRootPart")
-    humanoid = char:WaitForChild("Humanoid")
+    root      = char:WaitForChild("HumanoidRootPart")
+    humanoid  = char:WaitForChild("Humanoid")
 end
 
 -- ================= ESP =================
-local function createESP(player)
-    if player == LocalPlayer then return end
-    if not player.Character then return end
-    if player.Character:FindFirstChild("ESP_Highlight") then return end
+local function createESP(p)
+    if p == LocalPlayer or not p.Character then return end
+    if p.Character:FindFirstChild("ESP_Highlight") then return end
 
     local h = Instance.new("Highlight")
-    h.Name = "ESP_Highlight"
-    h.FillColor = ESP_COLOR
-    h.OutlineColor = Color3.fromRGB(255, 255, 255)
-    h.FillTransparency = 0.2
-    h.OutlineTransparency = 0
-    h.Adornee = player.Character
-    h.Parent = player.Character
+    h.Name               = "ESP_Highlight"
+    h.FillColor          = ESP_COLOR
+    h.OutlineColor       = Color3.fromRGB(255, 255, 255)
+    h.FillTransparency   = 0.2
+    h.OutlineTransparency= 0
+    h.Adornee            = p.Character
+    h.Parent             = p.Character
 
-    local head = player.Character:FindFirstChild("Head")
+    local head = p.Character:FindFirstChild("Head")
     if not head then return end
 
     local bill = Instance.new("BillboardGui")
-    bill.Name = "ESP_Billboard"
-    bill.Size = UDim2.fromOffset(140, 48)
-    bill.StudsOffset = Vector3.new(0, 2.6, 0)
-    bill.AlwaysOnTop = true
-    bill.Parent = head
+    bill.Name         = "ESP_Billboard"
+    bill.Size         = UDim2.fromOffset(140, 48)
+    bill.StudsOffset  = Vector3.new(0, 2.6, 0)
+    bill.AlwaysOnTop  = true
+    bill.Parent       = head
 
     local text = Instance.new("TextLabel", bill)
-    text.Name = "Info"
+    text.Name               = "Info"
     text.BackgroundTransparency = 1
-    text.TextColor3 = TEXT_COLOR
+    text.TextColor3         = TEXT_COLOR
     text.TextStrokeTransparency = 0
-    text.Font = Enum.Font.SourceSansBold
-    text.TextYAlignment = Enum.TextYAlignment.Top
-    text.Text = player.Name
-    text.Size = UDim2.new(1, -8, 0.65, 0)
-    text.Position = UDim2.new(0, 4, 0, 2)
-    text.TextScaled = true
-    text.TextWrapped = true
-    text.TextSize = 18
-    text.TextXAlignment = Enum.TextXAlignment.Center
+    text.Font               = Enum.Font.SourceSansBold
+    text.TextYAlignment     = Enum.TextYAlignment.Top
+    text.Text               = p.Name
+    text.Size               = UDim2.new(1, -8, 0.65, 0)
+    text.Position           = UDim2.new(0, 4, 0, 2)
+    text.TextScaled         = true
+    text.TextWrapped        = true
+    text.TextSize           = 18
+    text.TextXAlignment     = Enum.TextXAlignment.Center
 
     local barBG = Instance.new("Frame", bill)
-    barBG.Name = "HP_Background"
-    barBG.Size = UDim2.new(0.9, 0, 0.12, 0)
-    barBG.Position = UDim2.new(0.05, 0, 0.78, 0)
-    barBG.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    barBG.Name            = "HP_Background"
+    barBG.Size            = UDim2.new(0.9, 0, 0.12, 0)
+    barBG.Position        = UDim2.new(0.05, 0, 0.78, 0)
+    barBG.BackgroundColor3= Color3.fromRGB(50, 50, 50)
     barBG.BorderSizePixel = 0
 
     local barFG = Instance.new("Frame", barBG)
-    barFG.Name = "HP_Fill"
-    barFG.Size = UDim2.new(1, 0, 1, 0)
-    barFG.Position = UDim2.new(0, 0, 0, 0)
-    barFG.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    barFG.Name            = "HP_Fill"
+    barFG.Size            = UDim2.new(1, 0, 1, 0)
+    barFG.Position        = UDim2.new(0, 0, 0, 0)
+    barFG.BackgroundColor3= Color3.fromRGB(0, 255, 0)
     barFG.BorderSizePixel = 0
 end
 
-local function removeESP(player)
-    if player == LocalPlayer then return end
-    if not player.Character then return end
-    local h = player.Character:FindFirstChild("ESP_Highlight")
+local function removeESP(p)
+    if p == LocalPlayer or not p.Character then return end
+    local h = p.Character:FindFirstChild("ESP_Highlight")
     if h then h:Destroy() end
-    local head = player.Character:FindFirstChild("Head")
+    local head = p.Character:FindFirstChild("Head")
     if head then
         local bill = head:FindFirstChild("ESP_Billboard")
         if bill then bill:Destroy() end
@@ -189,23 +214,24 @@ local function updateESP()
     if not myHRP then return end
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
-            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            local hum  = p.Character:FindFirstChildOfClass("Humanoid")
             local pHRP = p.Character:FindFirstChild("HumanoidRootPart")
             local head = p.Character:FindFirstChild("Head")
             if hum and pHRP and head then
-                local bill = head:FindFirstChild("ESP_Billboard")
+                local bill  = head:FindFirstChild("ESP_Billboard")
                 if bill then
-                    local info = bill:FindFirstChild("Info")
-                    local barFG = bill:FindFirstChild("HP_Background") and bill.HP_Background:FindFirstChild("HP_Fill")
+                    local info  = bill:FindFirstChild("Info")
+                    local barFG = bill:FindFirstChild("HP_Background")
+                                   and bill.HP_Background:FindFirstChild("HP_Fill")
                     if info then
                         local dist = math.floor((myHRP.Position - pHRP.Position).Magnitude)
-                        info.Text = string.format("%s\nHP: %d | %dm", p.Name, math.floor(hum.Health), dist)
+                        info.Text  = string.format("%s\nHP: %d | %dm", p.Name, math.floor(hum.Health), dist)
                     end
                     if barFG then
                         local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
                         barFG.BackgroundColor3 = ratio > 0.6 and Color3.fromRGB(0, 255, 0)
-                            or ratio > 0.3 and Color3.fromRGB(255, 255, 0)
-                            or Color3.fromRGB(255, 0, 0)
+                                              or ratio > 0.3 and Color3.fromRGB(255, 255, 0)
+                                              or Color3.fromRGB(255, 0, 0)
                         barFG.Size = UDim2.new(ratio, 0, 1, 0)
                     end
                 end
@@ -260,14 +286,14 @@ local function createPlatform()
     if platform then platform:Destroy() end
     local pHRP = getHRP()
     if not pHRP then return end
-    platform = Instance.new("Part")
-    platform.Name = "WaterWalkPlatform"
-    platform.Size = Vector3.new(50, 1, 50)
-    platform.Anchored = true
-    platform.CanCollide = true
-    platform.Transparency = 1
-    platform.Parent = Workspace
-    platform.Position = Vector3.new(pHRP.Position.X, getWaterY() - 3, pHRP.Position.Z)
+    platform             = Instance.new("Part")
+    platform.Name        = "WaterWalkPlatform"
+    platform.Size        = Vector3.new(50, 1, 50)
+    platform.Anchored    = true
+    platform.CanCollide  = true
+    platform.Transparency= 1
+    platform.Parent      = Workspace
+    platform.Position    = Vector3.new(pHRP.Position.X, getWaterY() - 3, pHRP.Position.Z)
 end
 
 local function updatePlatform()
@@ -279,7 +305,7 @@ local function updatePlatform()
         platform.CanCollide = false
     else
         platform.CanCollide = true
-        platform.Position = Vector3.new(pHRP.Position.X, waterY - 3, pHRP.Position.Z)
+        platform.Position   = Vector3.new(pHRP.Position.X, waterY - 3, pHRP.Position.Z)
     end
 end
 
@@ -298,13 +324,12 @@ end
 local function getRoot(char) return char:FindFirstChild("HumanoidRootPart") end
 
 function Hitbox:ApplyToPlayer(plr)
-    if plr == LocalPlayer then return end
-    if not plr.Character then return end
+    if plr == LocalPlayer or not plr.Character then return end
     local r = getRoot(plr.Character)
     if r and r:IsA("BasePart") then
-        r.CanCollide = false
-        r.Size = Vector3.new(self.Size, self.Size, self.Size)
-        r.Transparency = self.Transparency
+        r.CanCollide  = false
+        r.Size        = Vector3.new(self.Size, self.Size, self.Size)
+        r.Transparency= self.Transparency
     end
 end
 
@@ -335,11 +360,11 @@ local function SetZoom(value)
     LocalPlayer.CameraMaxZoomDistance = value
 end
 
--- ================= FastAttack =================
-local Net = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net")
+-- ================= FastAttack 遠端 =================
+local Net            = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net")
 local RegisterAttack = Net:WaitForChild("RE/RegisterAttack")
-local RegisterHit = Net:WaitForChild("RE/RegisterHit")
-local EnemiesFolder = workspace:WaitForChild("Enemies")
+local RegisterHit    = Net:WaitForChild("RE/RegisterHit")
+local EnemiesFolder  = workspace:WaitForChild("Enemies")
 local CharactersFolder = workspace:WaitForChild("Characters")
 
 local function IsAlive(char)
@@ -347,55 +372,176 @@ local function IsAlive(char)
     return hum and hum.Health > 0
 end
 
--- ================= Fly / Noclip / Camlock =================
-local function DisableFly()
+-- ===============================================================
+-- ─ 飛向玩家系統（FlyToPlayer / FTP）
+-- ===============================================================
+
+-- 共用：設置 PlatformStand（讓角色懸空）
+local function setPlatformStand(state)
     local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = false end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-                part.Velocity = Vector3.zero
-            end
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand = state end
+end
+
+-- 共用：清除角色所有部位速度、恢復碰撞
+local function resetCharPhysics()
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+            part.Velocity   = Vector3.zero
         end
     end
-    FlyEnabled = false
-    NoclipEnabled = false
-    CurrentTargetPosition = nil
 end
 
-local function EnableFly()
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand = true end
-    end
+-- [FTP] 啟動：開啟 PlatformStand + 每幀追蹤目標玩家 + Noclip
+local function FTP_Enable()
+    if FTP.Enabled then return end
+    FTP.Enabled = true
+    setPlatformStand(true)
+
+    -- 每幀將速度向量對準目標玩家 HRP
+    FTP.Conn = RunService.RenderStepped:Connect(function()
+        if not FTP.Enabled then return end
+        if not TargetPlayer or not TargetPlayer.Character then return end
+        local char      = LocalPlayer.Character
+        local pHRP      = char and char:FindFirstChild("HumanoidRootPart")
+        local targetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not pHRP or not targetHRP then return end
+        local dir = targetHRP.Position - pHRP.Position
+        if dir.Magnitude > 0 then
+            pHRP.Velocity = dir.Unit * FTP.Speed
+        end
+    end)
+
+    -- 每個物理步驟持續關閉碰撞（穿牆）
+    FTP.NoclipConn = RunService.Stepped:Connect(function()
+        if not FTP.Enabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+    end)
 end
 
--- ================= SmartTeleport =================
+-- [FTP] 停止：斷開所有連線，恢復角色物理狀態
+local function FTP_Disable()
+    FTP.Enabled = false
+    if FTP.Conn       then FTP.Conn:Disconnect();       FTP.Conn       = nil end
+    if FTP.NoclipConn then FTP.NoclipConn:Disconnect(); FTP.NoclipConn = nil end
+    setPlatformStand(false)
+    resetCharPhysics()
+end
+
+-- ===============================================================
+-- ─ 飛向座標系統（FlyToCoord / FTC / SmartTeleport）
+-- ===============================================================
+
+-- [FTC] 啟動：開啟 PlatformStand + 每幀飛向目標座標 + Noclip
+--             抵達目標 1 格內自動停止
+local function FTC_Enable(targetVec3)
+    if FTC.Enabled then FTC_Disable() end   -- 若上次還在執行就先停
+    FTC.Enabled = true
+    FTC.Target  = targetVec3
+    setPlatformStand(true)
+
+    -- 每幀飛向 FTC.Target
+    FTC.Conn = RunService.RenderStepped:Connect(function()
+        if not FTC.Enabled then return end
+        local char = LocalPlayer.Character
+        local pHRP = char and char:FindFirstChild("HumanoidRootPart")
+        if not pHRP then return end
+        local dir = FTC.Target - pHRP.Position
+        if dir.Magnitude > 1 then
+            pHRP.Velocity = dir.Unit * FTC.Speed
+        else
+            -- 抵達目標，自動停止
+            pHRP.Velocity = Vector3.zero
+            FTC_Disable()
+        end
+    end)
+
+    -- 每個物理步驟持續關閉碰撞（穿牆）
+    FTC.NoclipConn = RunService.Stepped:Connect(function()
+        if not FTC.Enabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+    end)
+end
+
+-- [FTC] 停止：斷開所有連線，恢復角色物理狀態
+function FTC_Disable()
+    FTC.Enabled = false
+    FTC.Target  = nil
+    if FTC.Conn       then FTC.Conn:Disconnect();       FTC.Conn       = nil end
+    if FTC.NoclipConn then FTC.NoclipConn:Disconnect(); FTC.NoclipConn = nil end
+    setPlatformStand(false)
+    resetCharPhysics()
+end
+
+-- ===============================================================
+-- ─ SmartTeleport：兩段式傳送，只使用 FTC 系統
+-- ===============================================================
+-- 比較玩家到終點 vs 中繼點到終點的距離
+-- 若玩家已比中繼點更近 → 直接啟動 FTC
+-- 否則先瞬移到中繼點再啟動 FTC
 local function SmartTeleport(intermediate, target)
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local tHRP = char:WaitForChild("HumanoidRootPart")
-    if intermediate then tHRP.CFrame = intermediate; task.wait(0.2) end
-    CurrentTargetPosition = target
-    FlyEnabled = true
-    NoclipEnabled = true
-    EnableFly()
+    local hrp  = char:WaitForChild("HumanoidRootPart")
+
+    local distPlayer = (hrp.Position - target).Magnitude
+    local distInter  = (Vector3.new(intermediate.X, intermediate.Y, intermediate.Z) - target).Magnitude
+
+    if distPlayer <= distInter then
+        -- 玩家已更靠近終點，跳過中繼點
+        FTC_Enable(target)
+    else
+        -- 先瞬移到中繼點，再啟動 FTC
+        hrp.CFrame = intermediate
+        task.wait(0.2)
+        FTC_Enable(target)
+    end
 end
 
--- ================= Auto Equip =================
+-- ================= 裝備 / 大佛Z =================
 local function equipByType(toolType)
     selectedType = toolType
-    if autoEquipEnabled then
-        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local hum = char:WaitForChild("Humanoid")
-        for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
-            if tool:IsA("Tool") and tool.ToolTip == toolType then
-                hum:EquipTool(tool)
-                break
-            end
+    if not autoEquipEnabled then return end
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hum  = char:WaitForChild("Humanoid")
+    for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool.ToolTip == toolType then
+            hum:EquipTool(tool)
+            break
         end
+    end
+end
+
+local function doBuddhaZ()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum or hum.Health <= 0 then return end
+
+    originalToolType = selectedType
+    equipByType("Blox Fruit")
+    task.wait(0.45)
+
+    local vim = game:GetService("VirtualInputManager")
+    vim:SendKeyEvent(true,  Enum.KeyCode.Z, false, game)
+    task.wait(0.08)
+    vim:SendKeyEvent(false, Enum.KeyCode.Z, false, game)
+    task.wait(0.7)
+
+    if originalToolType then
+        equipByType(originalToolType)
+        originalToolType = nil
     end
 end
 
@@ -415,6 +561,26 @@ local function monitorCurrentTool()
                     end
                 end
             end
+        end
+    end)
+end
+
+-- 重生時自動執行一次大佛Z
+local function onCharacterAdded_BuddhaZ(char)
+    if not autoBuddhaZEnabled then return end
+    task.wait(2.5)
+    local hum = char:WaitForChild("Humanoid", 8)
+    if hum and hum.Health > 0 then
+        doBuddhaZ()
+    end
+end
+
+local function startAutoBuddhaZ()
+    if autoZThread then return end
+    autoZThread = task.spawn(function()
+        task.wait(1)
+        if autoBuddhaZEnabled and LocalPlayer.Character then
+            doBuddhaZ()
         end
     end)
 end
@@ -463,7 +629,8 @@ local function startBring()
         if not enemiesFolder then return end
         local basePos = targetNPC.PrimaryPart.Position
         for _, npc in pairs(enemiesFolder:GetChildren()) do
-            if npc ~= targetNPC and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 and npc.PrimaryPart then
+            if npc ~= targetNPC and npc:FindFirstChild("Humanoid")
+               and npc.Humanoid.Health > 0 and npc.PrimaryPart then
                 if (npc.PrimaryPart.Position - basePos).Magnitude <= BringNPC.PullRange then
                     npc:SetPrimaryPartCFrame(CFrame.new(basePos.X, npc.PrimaryPart.Position.Y, basePos.Z))
                 end
@@ -476,7 +643,7 @@ end
 local function getCharacterParts()
     local char = LocalPlayer.Character
     if not char then return false end
-    hrp = char:FindFirstChild("HumanoidRootPart")
+    hrp      = char:FindFirstChild("HumanoidRootPart")
     humanoid = char:FindFirstChild("Humanoid")
     return hrp and humanoid
 end
@@ -486,8 +653,9 @@ local function enemiesAlive()
     if not enemies then return false end
     for _, npc in ipairs(enemies:GetChildren()) do
         local hum = npc:FindFirstChild("Humanoid")
-        local r = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChild("Head")
-        if hum and hum.Health > 0 and r and hrp and (r.Position - hrp.Position).Magnitude <= DETECTION_RADIUS then
+        local r   = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChild("Head")
+        if hum and hum.Health > 0 and r and hrp
+           and (r.Position - hrp.Position).Magnitude <= DETECTION_RADIUS then
             return true
         end
     end
@@ -529,34 +697,33 @@ end
 
 local function teleportToExit(exitRoot)
     if isTeleporting or not exitRoot then return end
-    isTeleporting = true
+    isTeleporting      = true
     humanoid.WalkSpeed = 0
     humanoid.JumpPower = 0
-    hrp.CFrame = exitRoot.CFrame
+    hrp.CFrame         = exitRoot.CFrame
     humanoid.WalkSpeed = 16
     humanoid.JumpPower = 50
-    isTeleporting = false
+    isTeleporting      = false
 end
 
 -- ================= 移動 / 船速 =================
 local function startMove()
     if moving or not root or slideLocked then return end
-    moving = true
+    moving    = true
     wasMoving = true
-    moveConn = RunService.RenderStepped:Connect(function(dt)
-        if not root or ACTIVE_SEAT then return end
-        if slideLocked then return end
-        local cam = Workspace.CurrentCamera
-        local look = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+    moveConn  = RunService.RenderStepped:Connect(function(dt)
+        if not root or ACTIVE_SEAT or slideLocked then return end
+        local cam   = Workspace.CurrentCamera
+        local look  = Vector3.new(cam.CFrame.LookVector.X,  0, cam.CFrame.LookVector.Z)
         local right = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
-        local dir = Vector3.zero
-        if moveKeys.W then dir += look end
-        if moveKeys.S then dir -= look end
+        local dir   = Vector3.zero
+        if moveKeys.W then dir += look  end
+        if moveKeys.S then dir -= look  end
         if moveKeys.A then dir -= right end
         if moveKeys.D then dir += right end
         if dir.Magnitude > 0 then dir = dir.Unit end
         local targetVelocity = dir * SLIDE_MAGNITUDE
-        local lerpSpeed = dir.Magnitude > 0 and ACCELERATION or DECELERATION
+        local lerpSpeed      = dir.Magnitude > 0 and ACCELERATION or DECELERATION
         currentVelocity = currentVelocity:Lerp(targetVelocity, math.clamp(lerpSpeed * dt, 0, 1))
         root.CFrame += Vector3.new(currentVelocity.X, 0, currentVelocity.Z) * dt
     end)
@@ -569,7 +736,11 @@ end
 
 local function toggleMove(state)
     if slideLocked and state then return end
-    if state then startMove() else stopMove(); wasMoving = false; currentVelocity = Vector3.zero end
+    if state then
+        startMove()
+    else
+        stopMove(); wasMoving = false; currentVelocity = Vector3.zero
+    end
 end
 
 local function updateBoatSpeed()
@@ -587,14 +758,16 @@ local function onCharacter(char)
         if seat and seat:IsA("VehicleSeat") and sitting then
             slideLocked = true
             if moving then stopMove() end
-            ACTIVE_SEAT = seat
-            ORIGINAL_SEAT_SPEED = seat.MaxSpeed
+            ACTIVE_SEAT        = seat
+            ORIGINAL_SEAT_SPEED= seat.MaxSpeed
             updateBoatSpeed()
         else
             slideLocked = false
-            if ACTIVE_SEAT and ORIGINAL_SEAT_SPEED then ACTIVE_SEAT.MaxSpeed = ORIGINAL_SEAT_SPEED end
-            ACTIVE_SEAT = nil
-            ORIGINAL_SEAT_SPEED = nil
+            if ACTIVE_SEAT and ORIGINAL_SEAT_SPEED then
+                ACTIVE_SEAT.MaxSpeed = ORIGINAL_SEAT_SPEED
+            end
+            ACTIVE_SEAT        = nil
+            ORIGINAL_SEAT_SPEED= nil
             if wasMoving then startMove() else currentVelocity = Vector3.zero end
         end
     end)
@@ -614,7 +787,7 @@ local function StartAutoV3()
     if AutoV3._task then return end
     AutoV3._task = task.spawn(function()
         while AutoV3.Enabled do
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+            VirtualInputManager:SendKeyEvent(true,  Enum.KeyCode.T, false, game)
             task.wait(0.01)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.T, false, game)
             task.wait(0.1)
@@ -639,13 +812,13 @@ end
 local function ApplyLowGraphics(state)
     LOWGRAPHICS_ENABLED = state
     if state then
-        Terrain.WaterWaveSize = 0
-        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterWaveSize    = 0
+        Terrain.WaterWaveSpeed   = 0
         Terrain.WaterReflectance = 0
-        Terrain.WaterTransparency = 1
-        Lighting.GlobalShadows = false
-        Lighting.FogEnd = 9e9
-        Lighting.FogStart = 9e9
+        Terrain.WaterTransparency= 1
+        Lighting.GlobalShadows   = false
+        Lighting.FogEnd          = 9e9
+        Lighting.FogStart        = 9e9
         settings().Rendering.QualityLevel = 1
         for _, v in pairs(game:GetDescendants()) do
             if v:IsA("BasePart") then
@@ -662,7 +835,7 @@ local function ApplyLowGraphics(state)
         workspace.DescendantAdded:Connect(function(child)
             task.spawn(function()
                 if child:IsA("ForceField") or child:IsA("Sparkles") or child:IsA("Smoke")
-                    or child:IsA("Fire") or child:IsA("Beam") then
+                   or child:IsA("Fire") or child:IsA("Beam") then
                     RunService.Heartbeat:Wait()
                     child:Destroy()
                 elseif child:IsA("BasePart") then
@@ -717,7 +890,7 @@ local function updateJumpPower()
     if hum.UseJumpPower then
         hum.JumpPower = JumpSettings.Enabled and JumpSettings.JumpPower or 50
     else
-        hum.JumpHeight = JumpSettings.Enabled and JumpSettings.JumpPower or 7.2
+        hum.JumpHeight= JumpSettings.Enabled and JumpSettings.JumpPower or 7.2
     end
 end
 
@@ -725,81 +898,253 @@ end
 local function removeLava()
     for _, v in pairs(game.Workspace:GetDescendants()) do
         if v.Name == "LavaParts" and v.Parent and v.Parent.Name == "CircleIsland"
-            and v.Parent.Parent and v.Parent.Parent.Name == "Map" then
+           and v.Parent.Parent and v.Parent.Parent.Name == "Map" then
             v:Destroy()
         end
     end
     for _, v in pairs(game.ReplicatedStorage:GetDescendants()) do
         if v.Name == "LavaParts" and v.Parent and v.Parent.Name == "CircleIsland"
-            and v.Parent.Parent and v.Parent.Parent.Name == "Map" then
+           and v.Parent.Parent and v.Parent.Parent.Name == "Map" then
             v:Destroy()
         end
     end
 end
 
+-- ================= Fun 輔助函式（全域作用域）=================
+
+-- 放大倍率與 Tween 設定
+local scaleFactor   = 2
+local tweenInfo     = TweenInfo.new(1, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
+local originalSizes = {}
+
+-- 放大角色所有部位
+local function scaleCharacter(character)
+    for _, part in pairs(character:GetChildren()) do
+        if part:IsA("BasePart") then
+            if not originalSizes[part] then originalSizes[part] = part.Size end
+            TweenService:Create(part, tweenInfo, { Size = part.Size * scaleFactor }):Play()
+            part.CanCollide = false
+        end
+    end
+end
+
+-- 恢復角色原始大小
+local function resetCharacter(character)
+    for part, size in pairs(originalSizes) do
+        if part and part.Parent then
+            TweenService:Create(part, tweenInfo, { Size = size }):Play()
+            part.CanCollide = true
+        end
+    end
+end
+
+-- 全螢幕閃光效果（ColorCorrectionEffect）
+local colorEffect      = Lighting:FindFirstChild("FlashbangEffect") or Instance.new("ColorCorrectionEffect")
+colorEffect.Name       = "FlashbangEffect"
+colorEffect.Parent     = Lighting
+colorEffect.TintColor  = Color3.new(1, 1, 1)
+colorEffect.Brightness = 0
+
+local function FlashBang(position, radius)
+    local flashUp = TweenService:Create(colorEffect,
+        TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Brightness = 8 })
+    local fadeOut = TweenService:Create(colorEffect,
+        TweenInfo.new(0.5,  Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Brightness = 0 })
+    flashUp:Play()
+    flashUp.Completed:Wait()
+    fadeOut:Play()
+
+    for _, p in pairs(Players:GetPlayers()) do
+        local char = p.Character
+        if char and char:FindFirstChild("Head") then
+            if (char.Head.Position - position).Magnitude <= radius then
+                local sound   = Instance.new("Sound")
+                sound.SoundId = "rbxassetid://1234567890" -- ⚠ 請換成有效音效 ID
+                sound.Volume  = 1
+                sound.Parent  = char.Head
+                sound:Play()
+                sound.Ended:Connect(function() sound:Destroy() end)
+            end
+        end
+    end
+end
+
+-- 物理投擲閃光彈
+local function ThrowFlashbangRealistic(position, direction, speed, upwardForce)
+    local flashbang    = Instance.new("Part")
+    flashbang.Size     = Vector3.new(1, 1, 1)
+    flashbang.Shape    = Enum.PartType.Ball
+    flashbang.Color    = Color3.fromRGB(220, 220, 220)
+    flashbang.Material = Enum.Material.Metal
+    flashbang.Position = position
+    flashbang.Parent   = Workspace
+
+    local particle      = Instance.new("ParticleEmitter")
+    particle.Texture    = "rbxassetid://243660364"
+    particle.Rate       = 20
+    particle.Parent     = flashbang
+
+    local velocity  = direction.Unit * speed + Vector3.new(0, upwardForce, 0)
+    local gravity   = Vector3.new(0, -Workspace.Gravity, 0)
+    local exploded  = false
+    local connection
+    connection = RunService.Heartbeat:Connect(function(dt)
+        if exploded then return end
+        velocity          = velocity + gravity * dt
+        flashbang.Position= flashbang.Position + velocity * dt
+    end)
+
+    flashbang.Touched:Connect(function(hit)
+        if exploded or (hit.Parent and Players:GetPlayerFromCharacter(hit.Parent)) then return end
+        velocity = Vector3.new(velocity.X * 0.3, -velocity.Y * 0.5, velocity.Z * 0.3)
+        if velocity.Magnitude < 2 then
+            exploded = true
+            connection:Disconnect()
+            flashbang.Anchored = true
+            task.delay(1.5, function()
+                FlashBang(flashbang.Position, 25)
+                flashbang:Destroy()
+            end)
+        end
+    end)
+end
+
+-- 打手槍動畫工具
+local function JerkOff(speaker)
+    local hum      = speaker.Character and speaker.Character:FindFirstChildWhichIsA("Humanoid")
+    local backpack = speaker:FindFirstChildWhichIsA("Backpack")
+    if not hum or not backpack then return end
+
+    local tool          = Instance.new("Tool")
+    tool.Name           = "打手槍神器"
+    tool.ToolTip        = "in the stripped club."
+    tool.RequiresHandle = false
+    tool.Parent         = backpack
+
+    local jorkin = false
+    local track  = nil
+
+    local function stopTomfoolery()
+        jorkin = false
+        if track then track:Stop(); track = nil end
+    end
+
+    tool.Equipped:Connect(function() jorkin = true end)
+    tool.Unequipped:Connect(stopTomfoolery)
+    hum.Died:Connect(stopTomfoolery)
+
+    spawn(function()
+        while task.wait() do
+            if not jorkin then continue end
+            local isR15 = speaker.Character:FindFirstChild("Humanoid").RigType == Enum.HumanoidRigType.R15
+            if not track then
+                local anim       = Instance.new("Animation")
+                anim.AnimationId = not isR15 and "rbxassetid://72042024" or "rbxassetid://698251653"
+                track            = hum:LoadAnimation(anim)
+            end
+            track:Play()
+            track:AdjustSpeed(isR15 and 0.7 or 0.65)
+            track.TimePosition = 0.6
+            task.wait(0.1)
+            while track and track.TimePosition < (not isR15 and 0.65 or 0.7) do task.wait(0.1) end
+            if track then track:Stop(); track = nil end
+        end
+    end)
+end
+
+-- 觀戰系統
+local viewDied, viewChanged, viewing
+
+local function StopSpectate()
+    if viewDied    then viewDied:Disconnect();    viewDied    = nil end
+    if viewChanged then viewChanged:Disconnect(); viewChanged = nil end
+    workspace.CurrentCamera.CameraSubject = Players.LocalPlayer.Character
+    viewing = nil
+end
+
+local function SpectatePlayer(plr)
+    StopSpectate()
+    if not plr or not plr.Character then return end
+    viewing = plr
+    workspace.CurrentCamera.CameraSubject = viewing.Character
+
+    -- 重生時重新鎖定鏡頭
+    viewDied = plr.CharacterAdded:Connect(function()
+        repeat task.wait() until plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+        workspace.CurrentCamera.CameraSubject = plr.Character
+    end)
+
+    -- 防止 CameraSubject 被覆寫
+    viewChanged = workspace.CurrentCamera:GetPropertyChangedSignal("CameraSubject"):Connect(function()
+        if viewing and viewing.Character then
+            workspace.CurrentCamera.CameraSubject = viewing.Character
+        end
+    end)
+end
+
 -- ================= 傳送資料 =================
 local TeleportData = {
     World1 = {
-        ["海軍戰艦"] = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-3161, 209, 2067) },
-        ["新手村"]   = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(1106, 16, 1431) },
-        ["叢林"]     = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-1422, 48, 21) },
-        ["海盜村"]   = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-1151, 131, 4166) },
-        ["中城"]     = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-786, 74, 1607) },
-        ["可樂"]     = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-1880, 25, -3320) },
-        ["水下"]     = { Intermediate = CFrame.new(4039, 2, -1820), Target = Vector3.new(4039, 2, -1820) },
-        ["噴泉"]     = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(5668, 580, 4301) },
-        ["上空島"]   = { Intermediate = CFrame.new(-4624, 853, -1700), Target = Vector3.new(-7950, 5814, -1968) },
-        ["空島"]     = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-4913, 738, -2578) },
-        ["沙漠"]     = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(1055, 52, 4490) },
-        ["火山"]     = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-5412, 11, 8454) },
-        ["監獄"]     = { Intermediate = CFrame.new(61169, 2, 1948), Target = Vector3.new(5327, 89, 717) },
-        ["海洋堡壘"] = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-5150, 375, 4445) },
-        ["雪地"]     = { Intermediate = CFrame.new(61169, 2, 1948), Target = Vector3.new(1486, 87, -1281) },
-        ["暴徒領地"] = { Intermediate = CFrame.new(-7906, 5546, -379), Target = Vector3.new(-2836, 7, 5325) },
+        ["海軍戰艦"] = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-3161, 209, 2067)  },
+        ["新手村"]   = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(1106, 16, 1431)    },
+        ["叢林"]     = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-1422, 48, 21)     },
+        ["海盜村"]   = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-1151, 131, 4166)  },
+        ["中城"]     = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-786, 74, 1607)    },
+        ["可樂"]     = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-1880, 25, -3320)  },
+        ["水下"]     = { Intermediate = CFrame.new(4039, 2, -1820),     Target = Vector3.new(4039, 2, -1820)    },
+        ["噴泉"]     = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(5668, 580, 4301)   },
+        ["上空島"]   = { Intermediate = CFrame.new(-4624, 853, -1700),  Target = Vector3.new(-7950, 5814, -1968)},
+        ["空島"]     = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-4913, 738, -2578) },
+        ["沙漠"]     = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(1055, 52, 4490)    },
+        ["火山"]     = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-5412, 11, 8454)   },
+        ["監獄"]     = { Intermediate = CFrame.new(61169, 2, 1948),     Target = Vector3.new(5327, 89, 717)     },
+        ["海洋堡壘"] = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-5150, 375, 4445)  },
+        ["雪地"]     = { Intermediate = CFrame.new(61169, 2, 1948),     Target = Vector3.new(1486, 87, -1281)   },
+        ["暴徒領地"] = { Intermediate = CFrame.new(-7906, 5546, -379),  Target = Vector3.new(-2836, 7, 5325)    },
     },
     World2 = {
-        ["碼頭(2)"]   = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(-11, 38, 2724) },
-        ["鬼船"]      = { Intermediate = CFrame.new(-6504, 83, -123), Target = Vector3.new(919, 126, 33133) },
-        ["墓地"]      = { Intermediate = CFrame.new(922, 125, 32843), Target = Vector3.new(-5620, 492, -778) },
-        ["咖啡廳"]    = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(-380, 95, 252) },
-        ["黑暗競技場"]= { Intermediate = CFrame.new(-286, 306, 593), Target = Vector3.new(3776, 15, -3499) },
-        ["骷髏島"]    = { Intermediate = CFrame.new(922, 125, 32843), Target = Vector3.new(-2682, 708, -10966) },
-        ["狗屋"]      = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(-2059, 126, -83) },
-        ["岩漿"]      = { Intermediate = CFrame.new(922, 125, 32843), Target = Vector3.new(-5176, 175, -5426) },
-        ["Raid"]      = { Intermediate = CFrame.new(922, 125, 32843), Target = Vector3.new(-6493, 305, -4728) },
-        ["雪地"]      = { Intermediate = CFrame.new(-286, 306, 593), Target = Vector3.new(775, 410, -5265) },
-        ["可樂"]      = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(-1842, 46, 1362) },
-        ["實驗室"]    = { Intermediate = CFrame.new(922, 125, 32843), Target = Vector3.new(-5380, 219, -5936) },
-        ["豪宅"]      = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(-391, 322, 854) },
-        ["碼頭(4)"]   = { Intermediate = CFrame.new(922, 125, 32843), Target = Vector3.new(-6001, 29, -5024) },
-        ["遠程"]      = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(4756, 8, 2845) },
-        ["碼頭(1)"]   = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(-917, 8, 1807) },
-        ["冬季城堡"]  = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(6007, 294, -6637) },
-        ["碼頭(3)"]   = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(-1920, 6, -2554) },
-        ["工廠"]      = { Intermediate = CFrame.new(2283, 19, 911), Target = Vector3.new(430, 211, -430) },
-        ["未知"]      = { Intermediate = CFrame.new(922, 125, 32843), Target = Vector3.new(-5157, 3, 2377) },
+        ["碼頭(2)"]   = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(-11, 38, 2724)      },
+        ["鬼船"]      = { Intermediate = CFrame.new(-6504, 83, -123),   Target = Vector3.new(919, 126, 33133)    },
+        ["墓地"]      = { Intermediate = CFrame.new(922, 125, 32843),   Target = Vector3.new(-5620, 492, -778)   },
+        ["咖啡廳"]    = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(-380, 95, 252)      },
+        ["黑暗競技場"]= { Intermediate = CFrame.new(-286, 306, 593),    Target = Vector3.new(3776, 15, -3499)    },
+        ["骷髏島"]    = { Intermediate = CFrame.new(922, 125, 32843),   Target = Vector3.new(-2682, 708, -10966) },
+        ["狗屋"]      = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(-2059, 126, -83)    },
+        ["岩漿"]      = { Intermediate = CFrame.new(922, 125, 32843),   Target = Vector3.new(-5176, 175, -5426)  },
+        ["Raid"]      = { Intermediate = CFrame.new(922, 125, 32843),   Target = Vector3.new(-6493, 305, -4728)  },
+        ["雪地"]      = { Intermediate = CFrame.new(-286, 306, 593),    Target = Vector3.new(775, 410, -5265)    },
+        ["可樂"]      = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(-1842, 46, 1362)    },
+        ["實驗室"]    = { Intermediate = CFrame.new(922, 125, 32843),   Target = Vector3.new(-5380, 219, -5936)  },
+        ["豪宅"]      = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(-391, 322, 854)     },
+        ["碼頭(4)"]   = { Intermediate = CFrame.new(922, 125, 32843),   Target = Vector3.new(-6001, 29, -5024)   },
+        ["遠程"]      = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(4756, 8, 2845)      },
+        ["碼頭(1)"]   = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(-917, 8, 1807)      },
+        ["冬季城堡"]  = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(6007, 294, -6637)   },
+        ["碼頭(3)"]   = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(-1920, 6, -2554)    },
+        ["工廠"]      = { Intermediate = CFrame.new(2283, 19, 911),     Target = Vector3.new(430, 211, -430)     },
+        ["未知"]      = { Intermediate = CFrame.new(922, 125, 32843),   Target = Vector3.new(-5157, 3, 2377)     },
     },
     World3 = {
-        ["港口"]        = { Intermediate = CFrame.new(-5027, 317, -3207), Target = Vector3.new(-572, 232, 5770) },
-        ["烏龜屋"]      = { Intermediate = CFrame.new(-5060, 317, -3193), Target = Vector3.new(-12550, 337, -7506) },
-        ["海上城堡"]    = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-4929, 317, -3041) },
-        ["大媽島"]      = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-726, 381, -10977) },
-        ["海德拉"]      = { Intermediate = CFrame.new(-5027, 317, -3207), Target = Vector3.new(5761, 1089, 467) },
-        ["司法島"]      = { Intermediate = CFrame.new(-5097, 317, -3177), Target = Vector3.new(-15988, 470, 938) },
-        ["烏龜中心"]    = { Intermediate = CFrame.new(5369, 25, -506), Target = Vector3.new(-11993, 332, -9089) },
-        ["大樹"]        = { Intermediate = CFrame.new(-5027, 317, -3207), Target = Vector3.new(2551, 128, -6950) },
-        ["烏龜山"]      = { Intermediate = CFrame.new(5369, 25, -506), Target = Vector3.new(-12807, 897, -10793) },
-        ["鬧鬼城堡"]    = { Intermediate = CFrame.new(-5097, 317, -3177), Target = Vector3.new(-9515, 164, 5787) },
-        ["花生島"]      = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-2040, 5, -9814) },
-        ["烏龜入口"]    = { Intermediate = CFrame.new(-5060, 317, -3193), Target = Vector3.new(-10076, 332, -8321) },
-        ["海德拉競技場"]= { Intermediate = CFrame.new(-11993, 332, -8837), Target = Vector3.new(5014, 59, -1543) },
-        ["可可島"]      = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(182, 127, -12769) },
-        ["蛋糕島"]      = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-2102, 70, -12134) },
+        ["港口"]         = { Intermediate = CFrame.new(-5027, 317, -3207),  Target = Vector3.new(-572, 232, 5770)     },
+        ["烏龜屋"]       = { Intermediate = CFrame.new(-5060, 317, -3193),  Target = Vector3.new(-12550, 337, -7506)  },
+        ["海上城堡"]     = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-4929, 317, -3041)   },
+        ["大媽島"]       = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-726, 381, -10977)   },
+        ["海德拉"]       = { Intermediate = CFrame.new(-5027, 317, -3207),  Target = Vector3.new(5761, 1089, 467)     },
+        ["司法島"]       = { Intermediate = CFrame.new(-5097, 317, -3177),  Target = Vector3.new(-15988, 470, 938)    },
+        ["烏龜中心"]     = { Intermediate = CFrame.new(5369, 25, -506),     Target = Vector3.new(-11993, 332, -9089)  },
+        ["大樹"]         = { Intermediate = CFrame.new(-5027, 317, -3207),  Target = Vector3.new(2551, 128, -6950)    },
+        ["烏龜山"]       = { Intermediate = CFrame.new(5369, 25, -506),     Target = Vector3.new(-12807, 897, -10793) },
+        ["鬧鬼城堡"]     = { Intermediate = CFrame.new(-5097, 317, -3177),  Target = Vector3.new(-9515, 164, 5787)    },
+        ["花生島"]       = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-2040, 5, -9814)     },
+        ["烏龜入口"]     = { Intermediate = CFrame.new(-5060, 317, -3193),  Target = Vector3.new(-10076, 332, -8321)  },
+        ["海德拉競技場"] = { Intermediate = CFrame.new(-11993, 332, -8837), Target = Vector3.new(5014, 59, -1543)     },
+        ["可可島"]       = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(182, 127, -12769)    },
+        ["蛋糕島"]       = { Intermediate = CFrame.new(-12464, 376, -7566), Target = Vector3.new(-2102, 70, -12134)   },
     }
 }
 
 -- =================================================================
--- ✅ InitMainHub：點「執行」後才啟動所有功能與 UI
+-- InitMainHub：點「執行」後才啟動所有功能與 UI
 -- =================================================================
 local function InitMainHub()
 
@@ -807,7 +1152,7 @@ local function InitMainHub()
     setupCharacter(LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
     LocalPlayer.CharacterAdded:Connect(setupCharacter)
 
-    -- ── Camera Zoom ───────────────────────────────────────────────
+    -- ── Camera Zoom 初始化 ────────────────────────────────────────
     LocalPlayer.CameraMaxZoomDistance = CurrentZoom
 
     -- ── ESP 玩家事件 ──────────────────────────────────────────────
@@ -815,7 +1160,7 @@ local function InitMainHub()
     Players.PlayerAdded:Connect(setupPlayerESP)
     Players.PlayerRemoving:Connect(removeESP)
 
-    -- ── WASD 按鍵監聽 ─────────────────────────────────────────────
+    -- ── WASD 按鍵監聽（移動滑行） ─────────────────────────────────
     UserInputService.InputBegan:Connect(function(input, gpe)
         if gpe then return end
         if input.KeyCode == Enum.KeyCode.W then moveKeys.W = true end
@@ -838,6 +1183,11 @@ local function InitMainHub()
         task.wait(0.5); equipByType(selectedType)
     end)
 
+    -- ── 大佛Z：重生觸發（在 WindUI 載入後才綁定，避免提前觸發） ──
+    if not _G.BuddhaZ_RespawnConnection then
+        _G.BuddhaZ_RespawnConnection = LocalPlayer.CharacterAdded:Connect(onCharacterAdded_BuddhaZ)
+    end
+
     -- ── Auto Equip 監控 ───────────────────────────────────────────
     monitorCurrentTool()
 
@@ -857,7 +1207,7 @@ local function InitMainHub()
         while true do
             if _G.FastAttack and Settings.AutoClick then
                 local char = LocalPlayer.Character
-                local r = char and char:FindFirstChild("HumanoidRootPart")
+                local r    = char and char:FindFirstChild("HumanoidRootPart")
                 if r then
                     local targets = {}
                     for _, folder in ipairs({ EnemiesFolder, CharactersFolder }) do
@@ -894,35 +1244,14 @@ local function InitMainHub()
         end
     end)
 
-    -- ── RenderStepped：ESP + Fly + Camlock ───────────────────────
+    -- ── RenderStepped：ESP + Camlock ─────────────────────────────
+    -- 飛向玩家（FTP）與飛向座標（FTC）各自在 FTP_Enable / FTC_Enable
+    -- 內部建立獨立 RenderStepped + Stepped 連線，這裡不再處理飛行邏輯
     RunService.RenderStepped:Connect(function()
+        -- [核心] ESP：每幀更新所有玩家名稱/血量/距離顯示
         updateESP()
 
-        if FlyEnabled then
-            if TargetPlayer then
-                local char = LocalPlayer.Character
-                local pHRP = char and char:FindFirstChild("HumanoidRootPart")
-                local targetChar = TargetPlayer.Character
-                local targetHRP = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-                if pHRP and targetHRP then
-                    local dir = targetHRP.Position - pHRP.Position
-                    if dir.Magnitude > 0 then pHRP.Velocity = dir.Unit * FlySpeed end
-                end
-            elseif CurrentTargetPosition then
-                local char = LocalPlayer.Character
-                local pHRP = char and char:FindFirstChild("HumanoidRootPart")
-                if pHRP then
-                    local dir = CurrentTargetPosition - pHRP.Position
-                    if dir.Magnitude > 1 then
-                        pHRP.Velocity = dir.Unit * FlySpeed
-                    else
-                        pHRP.Velocity = Vector3.zero
-                        DisableFly()
-                    end
-                end
-            end
-        end
-
+        -- [核心] Camlock：鎖定目標玩家視角
         if CamlockEnabled and TargetPlayer and TargetPlayer.Character then
             local tHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
             if tHRP then
@@ -931,18 +1260,9 @@ local function InitMainHub()
         end
     end)
 
-    -- ── Stepped：Noclip (PVP) ─────────────────────────────────────
-    RunService.Stepped:Connect(function()
-        if not NoclipEnabled then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = false end
-        end
-    end)
-
-    -- ── Heartbeat：Fruit M1 ───────────────────────────────────────
+    -- ── Heartbeat：Fruit M1 擴大招架範圍 ─────────────────────────
     RunService.Heartbeat:Connect(function(dt)
+        -- [核心] 每次心跳將手持工具 Handle 放大倍率，達到延伸普攻範圍效果
         if not getgenv().AUTO_ATTACK_ENABLED then return end
         local char = LocalPlayer.Character
         if not char then return end
@@ -953,9 +1273,9 @@ local function InitMainHub()
         attackTimer = 0
         local handle = tool:FindFirstChild("Handle")
         if handle and not handle:GetAttribute("HitboxExpanded") then
-            handle.Size = handle.Size * RANGE_MULTIPLIER
-            handle.Transparency = 1
-            handle.CanCollide = false
+            handle.Size        = handle.Size * RANGE_MULTIPLIER
+            handle.Transparency= 1
+            handle.CanCollide  = false
             handle:SetAttribute("HitboxExpanded", true)
         end
         tool:Activate()
@@ -965,253 +1285,54 @@ local function InitMainHub()
     -- UI 建立
     -- ================================================================
     local Window = WindUI:CreateWindow({
-        Title = "Xu-hub",
-        Icon = "user-check",
-        Author = "by xuez1025",
-        Folder = "Xu-Hub",
-        Size = UDim2.fromOffset(600, 400),
+        Title    = "Xu-hub",
+        Icon     = "user-check",
+        Author   = "by xuez1025",
+        Folder   = "Xu-Hub",
+        Size     = UDim2.fromOffset(600, 400),
         Transparent = true,
-        Theme = "Dark",
+        Theme    = "Dark",
         User = {
-            Enabled = true,
+            Enabled   = true,
             Anonymous = false,
-            Callback = function()
+            Callback  = function()
                 WindUI:Notify({ Title = LocalPlayer.Name, Content = "ID: " .. LocalPlayer.UserId, Duration = 3 })
             end
         },
-        Acrylic = false,
+        Acrylic       = false,
         HideSearchBar = false,
-        SideBarWidth = 200,
+        SideBarWidth  = 200,
         OpenButton = {
-            Title = "Xu-hub",
-            CornerRadius = UDim.new(1, 0),
+            Title           = "Xu-hub",
+            CornerRadius    = UDim.new(1, 0),
             StrokeThickness = 3,
-            Enabled = true,
-            OnlyMobile = false,
-            Draggable = true,
-            OnlyIcon = false,
-            Color = ColorSequence.new(Color3.fromHex("#7F00FF"), Color3.fromHex("#00C6FF")),
+            Enabled         = true,
+            OnlyMobile      = false,
+            Draggable       = true,
+            OnlyIcon        = false,
+            Color           = ColorSequence.new(Color3.fromHex("#7F00FF"), Color3.fromHex("#00C6FF")),
         }
     })
 
--- 放大倍率
-local scaleFactor = 2
-
--- Tween設定
-local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
-
--- 儲存原始大小
-local originalSizes = {}
-
--- 放大角色函數
-local function scaleCharacter(character)
-    for _, part in pairs(character:GetChildren()) do
-        if part:IsA("BasePart") then
-            if not originalSizes[part] then
-                originalSizes[part] = part.Size
-            end
-
-            local goalSize = part.Size * scaleFactor
-            local tween = TweenService:Create(part, tweenInfo, {Size = goalSize})
-            tween:Play()
-
-            part.CanCollide = false
-        end
-    end
-end
-
--- 恢復角色函數
-local function resetCharacter(character)
-    for part, size in pairs(originalSizes) do
-        if part and part.Parent then
-            local tween = TweenService:Create(part, tweenInfo, {Size = size})
-            tween:Play()
-            part.CanCollide = true
-        end
-    end
-end
-
--- 初始化顏色校正 (如果尚未存在)
-local colorEffect = Lighting:FindFirstChild("FlashbangEffect") or Instance.new("ColorCorrectionEffect")
-colorEffect.Name = "FlashbangEffect"
-colorEffect.Parent = Lighting
-colorEffect.TintColor = Color3.new(1,1,1)
-colorEffect.Brightness = 0
-
--- 爆炸閃光函數
-local function FlashBang(position, radius)
-    local flashUp = TweenService:Create(
-        colorEffect,
-        TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        {Brightness = 8}
-    )
-    local fadeOut = TweenService:Create(
-        colorEffect,
-        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        {Brightness = 0}
-    )
-
-    flashUp:Play()
-    flashUp.Completed:Wait()
-    fadeOut:Play()
-
-    -- 影響附近玩家
-    for _, p in pairs(Players:GetPlayers()) do
-        local char = p.Character
-        if char and char:FindFirstChild("Head") then
-            local distance = (char.Head.Position - position).Magnitude
-            if distance <= radius then
-                local sound = Instance.new("Sound")
-                sound.SoundId = "rbxassetid://1234567890" -- 請確保更換為有效的 ID
-                sound.Volume = 1
-                sound.Parent = char.Head
-                sound:Play()
-                sound.Ended:Connect(function() sound:Destroy() end)
-            end
-        end
-    end
-end
-
--- 投擲邏輯
-local function ThrowFlashbangRealistic(position, direction, speed, upwardForce)
-    local flashbang = Instance.new("Part")
-    flashbang.Size = Vector3.new(1,1,1)
-    flashbang.Shape = Enum.PartType.Ball
-    flashbang.Color = Color3.fromRGB(220,220,220)
-    flashbang.Material = Enum.Material.Metal
-    flashbang.Position = position
-    flashbang.Parent = Workspace
-
-    local particle = Instance.new("ParticleEmitter")
-    particle.Texture = "rbxassetid://243660364" 
-    particle.Rate = 20
-    particle.Parent = flashbang
-
-    local velocity = direction.Unit * speed + Vector3.new(0, upwardForce, 0)
-    local gravity = Vector3.new(0, -Workspace.Gravity, 0)
-    local exploded = false
-
-    local connection
-    connection = RunService.Heartbeat:Connect(function(deltaTime)
-        if exploded then return end
-        velocity = velocity + gravity * deltaTime
-        flashbang.Position = flashbang.Position + velocity * deltaTime
-    end)
-
-    flashbang.Touched:Connect(function(hit)
-        if exploded or (hit.Parent and Players:GetPlayerFromCharacter(hit.Parent)) then return end
-        
-        velocity = Vector3.new(velocity.X * 0.3, -velocity.Y * 0.5, velocity.Z * 0.3)
-        if velocity.Magnitude < 2 then
-            exploded = true
-            connection:Disconnect()
-            flashbang.Anchored = true
-            task.delay(1.5, function()
-                FlashBang(flashbang.Position, 25)
-                flashbang:Destroy()
-            end)
-        end
-    end)
-end
-
--- 核心功能，抽成一個 function，方便呼叫
-local function JerkOff(speaker)
-    local humanoid = speaker.Character and speaker.Character:FindFirstChildWhichIsA("Humanoid")
-    local backpack = speaker:FindFirstChildWhichIsA("Backpack")
-    if not humanoid or not backpack then return end
-
-    local tool = Instance.new("Tool")
-    tool.Name = "打手槍神器"
-    tool.ToolTip = "in the stripped club. straight up \"jorking it\" . and by \"it\" , haha, well. let's justr say. My peanits."
-    tool.RequiresHandle = false
-    tool.Parent = backpack
-
-    local jorkin = false
-    local track = nil
-
-    local function stopTomfoolery()
-        jorkin = false
-        if track then
-            track:Stop()
-            track = nil
-        end
-    end
-
-    tool.Equipped:Connect(function() jorkin = true end)
-    tool.Unequipped:Connect(stopTomfoolery)
-    humanoid.Died:Connect(stopTomfoolery)
-
-    spawn(function()
-        while task.wait() do
-            if not jorkin then continue end
-            local isR15 = speaker.Character:FindFirstChild("Humanoid").RigType == Enum.HumanoidRigType.R15
-            if not track then
-                local anim = Instance.new("Animation")
-                anim.AnimationId = not isR15 and "rbxassetid://72042024" or "rbxassetid://698251653"
-                track = humanoid:LoadAnimation(anim)
-            end
-
-            track:Play()
-            track:AdjustSpeed(isR15 and 0.7 or 0.65)
-            track.TimePosition = 0.6
-            task.wait(0.1)
-            while track and track.TimePosition < (not isR15 and 0.65 or 0.7) do task.wait(0.1) end
-            if track then
-                track:Stop()
-                track = nil
-            end
-        end
-    end)
-end
-
--- 核心功能
-local viewDied, viewChanged
-local viewing
-
-local function StopSpectate()
-    if viewDied then viewDied:Disconnect() viewDied = nil end
-    if viewChanged then viewChanged:Disconnect() viewChanged = nil end
-    workspace.CurrentCamera.CameraSubject = Players.LocalPlayer.Character
-    viewing = nil
-end
-
-local function SpectatePlayer(plr)
-    StopSpectate()
-    if not plr or not plr.Character then return end
-
-    viewing = plr
-    workspace.CurrentCamera.CameraSubject = viewing.Character
-    notify('Spectate', 'Viewing ' .. viewing.Name)
-
-    -- 玩家重生時重新鎖定鏡頭
-    viewDied = plr.CharacterAdded:Connect(function()
-        repeat wait() until plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-        workspace.CurrentCamera.CameraSubject = plr.Character
-    end)
-
-    -- 防止 CameraSubject 被改
-    viewChanged = workspace.CurrentCamera:GetPropertyChangedSignal("CameraSubject"):Connect(function()
-        if viewing and viewing.Character then
-            workspace.CurrentCamera.CameraSubject = viewing.Character
-        end
-    end)
-end
-
     local Tabs = {
-        General  = Window:Tab({ Title = "通用",   Icon = "house" }),
-        Server   = Window:Tab({ Title = "Server", Icon = "server" }),
+        General  = Window:Tab({ Title = "通用",   Icon = "house"    }),
+        Server   = Window:Tab({ Title = "Server", Icon = "server"   }),
         Status   = Window:Tab({ Title = "狀態",   Icon = "activity" }),
-        PVP      = Window:Tab({ Title = "PVP",    Icon = "swords" }),
-        Farm     = Window:Tab({ Title = "Farm",   Icon = "leaf" }),
-        Auto     = Window:Tab({ Title = "自動",   Icon = "cpu" }),
+        PVP      = Window:Tab({ Title = "PVP",    Icon = "swords"   }),
+        Farm     = Window:Tab({ Title = "Farm",   Icon = "leaf"     }),
+        Auto     = Window:Tab({ Title = "自動",   Icon = "cpu"      }),
         Settings = Window:Tab({ Title = "設定",   Icon = "settings" }),
-        Teleport = Window:Tab({ Title = "傳送",   Icon = "map-pin" }),
-        Fun      = Window:Tab({ Title = "娛樂",   Icon = "smile" }),
+        Teleport = Window:Tab({ Title = "傳送",   Icon = "map-pin"  }),
+        Fun      = Window:Tab({ Title = "娛樂",   Icon = "smile"    }),
         Other    = Window:Tab({ Title = "其他",   Icon = "ellipsis" }),
     }
 
-    -- General
+    -- ================================================================
+    -- ─ General Tab
+    -- ================================================================
     Tabs.General:Section({ Title = "通用" })
+
+    -- [核心按鈕] ESP：為所有玩家建立 Highlight + BillboardGui 血量標籤
     Tabs.General:Toggle({ Title = "ESP", Desc = "顯示玩家名稱、血量與距離", Value = false,
         Callback = function(state)
             ESP_ENABLED = state
@@ -1220,44 +1341,64 @@ end
             end
         end
     })
+
+    -- [核心按鈕] Noclip：讓角色可穿越所有碰撞體（Stepped 持續關閉 CanCollide）
     Tabs.General:Toggle({ Title = "Noclip", Desc = "角色可穿牆移動", Value = false,
         Callback = function(state) setNoclipState(state) end
     })
+
+    -- [核心按鈕] 水上行走：在角色腳下生成隱形平台，使其浮於水面
     Tabs.General:Toggle({ Title = "水上行走", Desc = "可在水面上行走", Value = false,
         Callback = function(state) setWaterWalkState(state) end
     })
+
+    -- [核心按鈕] Remove Lava：搜尋並銷毀 CircleIsland 的熔岩部件，避免持續掉血
     Tabs.General:Button({ Title = "Remove Lava", Desc = "按一次觸發",
         Callback = function() removeLava() end
     })
+
+    -- [核心按鈕] 碰撞箱大小：調整其他玩家 HumanoidRootPart 的碰撞尺寸，便於近戰命中
     Tabs.General:Slider({ Title = "碰撞箱", Desc = "調整碰撞箱大小",
         Value = { Min = 1, Max = 20, Default = Hitbox.Size },
         Callback = function(value) Hitbox.Size = value; Hitbox:ApplyAll() end
     })
+
+    -- [核心按鈕] 視角縮放：變更 CameraMaxZoomDistance，可拉遠至 10,000 格
     Tabs.General:Slider({ Title = "視角縮放", Desc = "調整視角距離",
         Value = { Min = MIN_ZOOM, Max = MAX_ZOOM, Default = CurrentZoom },
         Callback = function(value) SetZoom(value) end
     })
 
-    -- Server
+    -- ================================================================
+    -- ─ Server Tab
+    -- ================================================================
     Tabs.Server:Section({ Title = "Server" })
+
+    -- [核心按鈕] 切換伺服器：透過 TeleportService 重新進入相同 PlaceId 的另一個伺服器
     Tabs.Server:Button({ Title = "切換伺服器",
         Callback = function()
             task.spawn(function() pcall(function() TeleportService:Teleport(PlaceId, LocalPlayer) end) end)
             WindUI:Notify({ Title = "傳送中", Content = "正在切換伺服器...", Duration = 3 })
         end
     })
+
+    -- [核心按鈕] 重進伺服器：Teleport 到同一 PlaceId（強制重載客戶端）
     Tabs.Server:Button({ Title = "重進伺服器",
         Callback = function()
             task.spawn(function() TeleportService:Teleport(PlaceId, LocalPlayer) end)
             WindUI:Notify({ Title = "重進伺服器", Content = "你已經重新進入同一伺服器", Duration = 3 })
         end
     })
+
+    -- [核心按鈕] 加入少人伺服器：從 Roblox API 取得伺服器列表，加入人數最少的那個
     Tabs.Server:Button({ Title = "加入少人伺服器",
         Callback = function()
             task.spawn(function()
                 local AllServers = {}
                 local success, servers = pcall(function()
-                    return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
+                    return HttpService:JSONDecode(game:HttpGet(
+                        "https://games.roblox.com/v1/games/"..PlaceId.."/servers/Public?sortOrder=Asc&limit=100"
+                    ))
                 end)
                 if success and servers and servers.data then
                     for _, s in ipairs(servers.data) do
@@ -1267,22 +1408,30 @@ end
                     end
                 end
                 if #AllServers > 0 then
-                    TeleportService:TeleportToPlaceInstance(PlaceId, AllServers[math.random(1, #AllServers)], LocalPlayer)
+                    TeleportService:TeleportToPlaceInstance(
+                        PlaceId, AllServers[math.random(1, #AllServers)], LocalPlayer
+                    )
                 end
             end)
             WindUI:Notify({ Title = "傳送到少人伺服器", Content = "正在尋找玩家較少的伺服器...", Duration = 3 })
         end
     })
 
-    -- Status
+    -- ================================================================
+    -- ─ Status Tab
+    -- ================================================================
     Tabs.Status:Section({ Title = "狀態:", TextSize = 24, FontWeight = Enum.FontWeight.SemiBold })
     Tabs.Status:Space()
-    local PlayerSection   = Tabs.Status:Section({ Title = "Players: ...", TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
+
+    local PlayerSection   = Tabs.Status:Section({ Title = "Players: ...",    TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
     local TimeSection     = Tabs.Status:Section({ Title = "Local Time: ...", TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
-    local PingSection     = Tabs.Status:Section({ Title = "Ping: ...", TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
-    local FPSSection      = Tabs.Status:Section({ Title = "FPS: ...", TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
-    local GameTimeSection = Tabs.Status:Section({ Title = "Game Time: ...", TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
+    local PingSection     = Tabs.Status:Section({ Title = "Ping: ...",       TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
+    local FPSSection      = Tabs.Status:Section({ Title = "FPS: ...",        TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
+    local GameTimeSection = Tabs.Status:Section({ Title = "Game Time: ...",  TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
+
     Tabs.Status:Section({ Title = "Discord: https://discord.gg/ptec6vhQtf", TextSize = 18, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium })
+
+    -- [核心按鈕] 複製 Discord 連結到剪貼簿
     Tabs.Status:Button({ Title = "Copy Discord Link",
         Callback = function()
             setclipboard("https://discord.gg/ptec6vhQtf")
@@ -1290,6 +1439,7 @@ end
         end
     })
 
+    -- 狀態資訊每 0.5 秒自動更新
     local frameCount, lastTime, fps = 0, tick(), 0
     RunService.RenderStepped:Connect(function() frameCount += 1 end)
     task.spawn(function()
@@ -1300,34 +1450,47 @@ end
             end
             local t = os.date("*t")
             if TimeSection.SetTitle then
-                TimeSection:SetTitle(string.format("Local Time: %04d-%02d-%02d %02d:%02d:%02d", t.year, t.month, t.day, t.hour, t.min, t.sec))
+                TimeSection:SetTitle(string.format("Local Time: %04d-%02d-%02d %02d:%02d:%02d",
+                    t.year, t.month, t.day, t.hour, t.min, t.sec))
             end
             if PingSection.SetTitle then
                 PingSection:SetTitle(string.format("Ping: %.0f ms", LocalPlayer:GetNetworkPing() * 1000))
             end
             local now = tick()
-            if now - lastTime >= 1 then fps = frameCount / (now - lastTime); frameCount = 0; lastTime = now end
+            if now - lastTime >= 1 then
+                fps = frameCount / (now - lastTime); frameCount = 0; lastTime = now
+            end
             if FPSSection.SetTitle then FPSSection:SetTitle(string.format("FPS: %.0f/s", fps)) end
             local gt = math.floor(Workspace.DistributedGameTime + 0.5)
             if GameTimeSection.SetTitle then
-                GameTimeSection:SetTitle(string.format("Game Time: %02d:%02d:%02d", math.floor(gt/3600)%24, math.floor(gt/60)%60, gt%60))
+                GameTimeSection:SetTitle(string.format("Game Time: %02d:%02d:%02d",
+                    math.floor(gt / 3600) % 24, math.floor(gt / 60) % 60, gt % 60))
             end
         end
     end)
 
-    -- PVP
+    -- ================================================================
+    -- ─ PVP Tab
+    -- ================================================================
     Tabs.PVP:Section({ Title = "PVP" })
+
+    -- [核心按鈕] 自動攻擊：開啟 FastAttack，每 0.01 秒向最近敵人觸發傷害事件
     Tabs.PVP:Toggle({ Title = "自動攻擊", Desc = "FastAttack 開關", Value = true,
         Callback = function(state) _G.FastAttack = state; Settings.AutoClick = state end
     })
+
+    -- [核心按鈕] 攻擊距離：設定 FastAttack 的偵測半徑（格）
     Tabs.PVP:Slider({ Title = "攻擊距離", Desc = "調整攻擊距離",
         Value = { Min = 0, Max = 1000, Default = 50 },
         Callback = function(value) Settings.Distance = value end
     })
+
+    -- [核心按鈕] Fruit M1：將手持工具 Handle 放大倍率，擴大果實普攻碰撞範圍
     Tabs.PVP:Toggle({ Title = "Fruit M1", Desc = "開啟或關閉果實自動普攻", Value = false,
         Callback = function(state) getgenv().AUTO_ATTACK_ENABLED = state end
     })
 
+    -- 玩家選擇下拉選單（供 Fly to Player / Camlock / 觀戰使用）
     local function GetPlayerList()
         local list = {}
         for _, plr in ipairs(Players:GetPlayers()) do
@@ -1342,50 +1505,97 @@ end
             end
         end
     })
-    Players.PlayerAdded:Connect(function() playerDropdown:Refresh(GetPlayerList()) end)
+    Players.PlayerAdded:Connect(function()    playerDropdown:Refresh(GetPlayerList()) end)
     Players.PlayerRemoving:Connect(function() playerDropdown:Refresh(GetPlayerList()) end)
 
+    -- [核心按鈕] Fly to Player：啟動 FTP 系統，每幀追蹤目標玩家 HRP
+    --           獨立 RenderStepped + Stepped 連線，與 SmartTeleport 完全不干涉
     Tabs.PVP:Toggle({ Title = "Fly to Player", Desc = "飛向選定玩家", Value = false,
         Callback = function(state)
-            FlyEnabled = state; NoclipEnabled = state
-            if state then EnableFly() else DisableFly() end
+            if state then
+                if not TargetPlayer then
+                    WindUI:Notify({ Title = "Fly to Player", Content = "請先選擇目標玩家！", Duration = 3 })
+                    return
+                end
+                FTP_Enable()
+            else
+                FTP_Disable()
+            end
         end
     })
+
+    -- [核心按鈕] FTP 飛行速度
+    Tabs.PVP:Slider({ Title = "Fly 速度", Desc = "調整飛向玩家的速度",
+        Value = { Min = 50, Max = 2000, Default = FTP.Speed },
+        Callback = function(value) FTP.Speed = value end
+    })
+
+    -- [核心按鈕] 視角鎖定（Camlock）：RenderStepped 持續將攝影機朝向目標玩家
     Tabs.PVP:Toggle({ Title = "視角鎖定", Desc = "鎖定目標玩家", Value = false,
         Callback = function(state) CamlockEnabled = state end
     })
-	Tabs.PVP:Toggle({
-    Title = "觀察玩家",
-    Desc = "開啟或關閉觀戰",
-    Value = false,
-    Callback = function(state)
-        if state then
-            if TargetPlayer then
-                SpectatePlayer(TargetPlayer)
-            else
-                notify("Spectate", "請先選擇玩家！")
-            end
-        else
-            StopSpectate()
-        end
-    end
-})
 
-    -- Farm
+    -- [核心按鈕] 觀察玩家：將 CameraSubject 設為目標角色，並防止被覆寫
+    Tabs.PVP:Toggle({ Title = "觀察玩家", Desc = "開啟或關閉觀戰", Value = false,
+        Callback = function(state)
+            if state then
+                if TargetPlayer then
+                    SpectatePlayer(TargetPlayer)
+                    WindUI:Notify({ Title = "Spectate", Content = "正在觀察 " .. TargetPlayer.Name, Duration = 3 })
+                else
+                    WindUI:Notify({ Title = "Spectate", Content = "請先選擇玩家！", Duration = 3 })
+                end
+            else
+                StopSpectate()
+            end
+        end
+    })
+
+    -- ================================================================
+    -- ─ Farm Tab
+    -- ================================================================
     Tabs.Farm:Section({ Title = "Farm Setting" })
+
+    -- [核心按鈕] 選擇配置：決定 autoEquipEnabled 要切換的工具類型（ToolTip 比對）
     Tabs.Farm:Dropdown({ Title = "選擇配置", Multi = false,
         Values = { "Melee", "Blox Fruit", "Sword", "Gun" }, Default = "Melee",
-        Callback = function(option) selectedType = option; if autoEquipEnabled then equipByType(selectedType) end end
+        Callback = function(option)
+            selectedType = option
+            if autoEquipEnabled then equipByType(selectedType) end
+        end
     })
+
+    -- [核心按鈕] 自動裝備：持續監控並強制切換到選定的工具類型
     Tabs.Farm:Toggle({ Title = "自動裝備", Desc = "自動切換到選擇的配置", Value = false,
-        Callback = function(state) autoEquipEnabled = state; if state then equipByType(selectedType) end end
+        Callback = function(state)
+            autoEquipEnabled = state
+            if state then equipByType(selectedType) end
+        end
     })
+
+    -- [核心按鈕] 自動大佛Z招：重生時自動切換到果實→按Z→切回原武器
+    Tabs.Farm:Toggle({ Title = "自動大佛Z招（重生自動）", Desc = "開啟後：重生時自動執行一次大佛Z", Value = false,
+        Callback = function(state)
+            autoBuddhaZEnabled = state
+            if state then
+                startAutoBuddhaZ()
+                if LocalPlayer.Character then
+                    task.spawn(function() task.wait(1); doBuddhaZ() end)
+                end
+            end
+        end
+    })
+
+    -- [核心按鈕] TP to NPC：Heartbeat 持續將玩家傳送到最近存活 NPC 上方
     Tabs.Farm:Toggle({ Title = "TP to NPC", Desc = "自動傳送到NPC", Value = FlyTP.Enabled,
         Callback = function(state) FlyTP.Enabled = state; if state then startFly() else stopFly() end end
     })
+
+    -- [核心按鈕] Bring NPC：把 PullRange 內的 NPC 拉到目標 NPC 位置
     Tabs.Farm:Toggle({ Title = "Bring NPC", Desc = "把附近NPC帶過來", Value = BringNPC.Enabled,
         Callback = function(state) BringNPC.Enabled = state; if state then startBring() else stopBring() end end
     })
+
     Tabs.Farm:Slider({ Title = "飛行高度", Desc = "調整飛行高度 (50m)",
         Value = { Min = 0, Max = 50, Default = FlyTP.HoverHeight },
         Callback = function(value) FlyTP.HoverHeight = value end
@@ -1398,7 +1608,10 @@ end
         Value = { Min = 0, Max = 250, Default = BringNPC.PullRange },
         Callback = function(value) BringNPC.PullRange = value end
     })
+
     Tabs.Farm:Section({ Title = "Dungeon" })
+
+    -- [核心按鈕] 自動傳送（地城）：無存活敵人時自動傳送到最近出口
     Tabs.Farm:Toggle({ Title = "自動傳送", Desc = "自動傳送到出口", Value = false,
         Callback = function(state)
             AutoTeleportEnabled = state
@@ -1408,7 +1621,10 @@ end
             end
         end
     })
+
     Tabs.Farm:Section({ Title = "船" })
+
+    -- [核心按鈕] 船隻加速：覆寫 VehicleSeat.MaxSpeed
     Tabs.Farm:Toggle({ Title = "船隻加速", Desc = "啟用或關閉船速度修改", Value = BoatSpeedSettings.Enabled,
         Callback = function(state) BoatSpeedSettings.Enabled = state; updateBoatSpeed() end
     })
@@ -1417,17 +1633,25 @@ end
         Callback = function(value) BoatSpeedSettings.Speed = value; updateBoatSpeed() end
     })
 
-    -- Auto
+    -- ================================================================
+    -- ─ Auto Tab
+    -- ================================================================
     Tabs.Auto:Section({ Title = "自動" })
+
+    -- [核心按鈕] 自動武裝色：每秒呼叫 CommF:InvokeServer("Buso") 保持鎧武裝激活
     Tabs.Auto:Toggle({ Title = "自動武裝色", Desc = "自動開啟或關閉武裝色", Value = true,
         Callback = function(state) AutoBuso = state; if state then tryBuso() end end
     })
+
+    -- [核心按鈕] 自動 V3：每 0.1 秒模擬按下 T 鍵以維持 V3 狀態
     Tabs.Auto:Toggle({ Title = "自動 v3", Desc = "自動開啟或關閉v3", Value = false,
         Callback = function(state)
             AutoV3.Enabled = state
             if state then StartAutoV3() else StopAutoV3() end
         end
     })
+
+    -- [核心按鈕] 自動 V4：透過背包內 Awakening RemoteFunction 持續觸發覺醒
     Tabs.Auto:Toggle({ Title = "自動 V4", Desc = "自動開啟或關閉v4", Value = false,
         Callback = function(state)
             AutoV4 = state
@@ -1442,22 +1666,36 @@ end
         end
     })
 
-    -- Settings
+    -- ================================================================
+    -- ─ Settings Tab
+    -- ================================================================
     Tabs.Settings:Section({ Title = "設定" })
+
+    -- [核心按鈕] 快捷鍵：重新綁定開關 UI 的按鍵
     Tabs.Settings:Keybind({ Title = "快捷鍵", Desc = "可更改", Value = "G",
         Callback = function(v) Window:SetToggleKey(Enum.KeyCode[v]) end
     })
+
     Tabs.Settings:Section({ Title = "提高FPS" })
+
+    -- [核心按鈕] 低配模式：關閉陰影/粒子/反射，品質設為最低，提升幀率
     Tabs.Settings:Button({ Title = "低配模式", Desc = "按一次啟用低配模式",
         Callback = function() ApplyLowGraphics(true) end
     })
+
+    -- [核心按鈕] Remove Fog：移除 Lighting 的霧效與天空盒，增加能見度
     Tabs.Settings:Button({ Title = "Remove Fog", Desc = "按一次啟用Remove Fog",
         Callback = function() RemoveFog() end
     })
+
     Tabs.Settings:Section({ Title = "遊戲內" })
+
+    -- [核心按鈕] Anti AFK：攔截 Idled 事件，防止閒置踢出
     Tabs.Settings:Toggle({ Title = "Anti AFK", Desc = "防止閒置被踢出", Value = true,
         Callback = function(state) if state then EnableAntiAFK() else DisableAntiAFK() end end
     })
+
+    -- [核心按鈕] 移動速度（滑行）：RenderStepped 模擬高速 WASD 移動
     Tabs.Settings:Toggle({ Title = "移動速度", Desc = "開啟或關閉 WASD 移動滑動", Value = false,
         Callback = function(state) toggleMove(state) end
     })
@@ -1465,6 +1703,8 @@ end
         Value = { Min = 0, Max = 1000, Default = SLIDE_MAGNITUDE },
         Callback = function(value) SLIDE_MAGNITUDE = value end
     })
+
+    -- [核心按鈕] 跳躍開關 / 跳躍高度：覆寫 Humanoid.JumpPower 或 JumpHeight
     Tabs.Settings:Toggle({ Title = "跳躍開關", Desc = "開啟或關閉自訂跳躍高度", Value = JumpSettings.Enabled,
         Callback = function(state) JumpSettings.Enabled = state; updateJumpPower() end
     })
@@ -1473,15 +1713,21 @@ end
         Callback = function(value) JumpSettings.JumpPower = value; updateJumpPower() end
     })
 
-    -- Teleport
+    -- ================================================================
+    -- ─ Teleport Tab
+    -- ================================================================
     Tabs.Teleport:Section({ Title = "停止飛行" })
-    Tabs.Teleport:Button({ Title = "停用飛行", Desc = "立即停止飛行",
+
+    -- [核心按鈕] 停用「傳送飛行」：只停止 FTC 系統，不影響 FTP
+    Tabs.Teleport:Button({ Title = "停用飛行",
+        Desc = "立即停止飛行",
         Callback = function()
-            DisableFly()
-            WindUI:Notify({ Title = "系統通知", Content = "已成功停用飛行模式並重置角色狀態", Duration = 3 })
+            FTC_Disable()
+            WindUI:Notify({ Title = "Xu通知", Content = "已成功停飛行", Duration = 3 })
         end
     })
 
+    -- [核心按鈕] 地圖傳送（一二三海）：SmartTeleport 兩段式傳送（中繼點→FTC飛行→目標）
     for _, info in ipairs({
         { title = "一海", world = "World1", check = World1 },
         { title = "二海", world = "World2", check = World2 },
@@ -1498,85 +1744,76 @@ end
         })
     end
 
-    -- Fun / Other
+    -- ================================================================
+    -- ─ Fun Tab
+    -- ================================================================
     Tabs.Fun:Section({ Title = "娛樂(視覺型)" })
 
-Tabs.Fun:Button({
-    Title = "身體放大",
-    Desc = "按一次觸發角色放大",
-    Callback = function()
-        local char = player.Character or player.CharacterAdded:Wait()
-        scaleCharacter(char)
-    end
-})
-
-Tabs.Fun:Button({
-    Title = "恢復身體",
-    Desc = "按一次恢復角色大小",
-    Callback = function()
-        local char = player.Character or player.CharacterAdded:Wait()
-        resetCharacter(char)
-    end
-})
-
-Tabs.Fun:Button({
-    Title = "投擲閃光彈",
-    Desc = "朝前方投擲一顆寫實的閃光彈",
-    Callback = function()
-        local player = Players.LocalPlayer
-        local character = player.Character
-        if character and character:FindFirstChild("Head") then
-            local head = character.Head
-            -- 參數：起始位置, 方向, 速度, 上拋力
-            ThrowFlashbangRealistic(
-                head.Position + (head.CFrame.LookVector * 2), 
-                head.CFrame.LookVector, 
-                60, 
-                25
-            )
+    -- [核心按鈕] 身體放大：用 TweenService 將角色所有 BasePart 放大 scaleFactor 倍
+    Tabs.Fun:Button({ Title = "身體放大", Desc = "按一次觸發角色放大",
+        Callback = function()
+            local char = player.Character or player.CharacterAdded:Wait()
+            scaleCharacter(char)
         end
-    end
-})
+    })
 
-Tabs.Fun:Button({
-    Title = "打手槍",
-    Desc = "小心使用",
-    Callback = function()
-        local player = game.Players.LocalPlayer
-        if player then
-            JerkOff(player)
+    -- [核心按鈕] 恢復身體：用 TweenService 將所有部位復原到 originalSizes 紀錄的大小
+    Tabs.Fun:Button({ Title = "恢復身體", Desc = "按一次恢復角色大小",
+        Callback = function()
+            local char = player.Character or player.CharacterAdded:Wait()
+            resetCharacter(char)
         end
-    end
-})
+    })
 
+    -- [核心按鈕] 投擲閃光彈：生成物理拋體，落地後觸發全螢幕白光效果
+    Tabs.Fun:Button({ Title = "投擲閃光彈", Desc = "朝前方投擲一顆寫實的閃光彈",
+        Callback = function()
+            local char = Players.LocalPlayer.Character
+            if char and char:FindFirstChild("Head") then
+                local head = char.Head
+                ThrowFlashbangRealistic(
+                    head.Position + (head.CFrame.LookVector * 2),
+                    head.CFrame.LookVector,
+                    60, 25
+                )
+            end
+        end
+    })
+
+    -- [核心按鈕] 打手槍：在背包生成含動畫的工具，裝備後播放循環動作
+    Tabs.Fun:Button({ Title = "打手槍", Desc = "小心使用",
+        Callback = function()
+            JerkOff(game.Players.LocalPlayer)
+        end
+    })
+
+    -- ================================================================
+    -- ─ Other Tab
+    -- ================================================================
     Tabs.Other:Section({ Title = "其他" })
 
-Tabs.Other:Button({
-    Title = "FLY GUI",
-    Callback = function()
-
-        WindUI:Notify({
-            Title = "FLY GUI",
-            Content = "正在載入 FLY GUI...",
-            Duration = 3
-        })
-
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/xuez1025/code/refs/heads/main/FLY%20GUI"))()
-
-    end
-})
+    -- [核心按鈕] FLY GUI：透過 HttpGet 載入外部飛行 GUI 腳本
+    Tabs.Other:Button({ Title = "FLY GUI",
+        Callback = function()
+            WindUI:Notify({ Title = "FLY GUI", Content = "正在載入 FLY GUI...", Duration = 3 })
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/xuez1025/code/refs/heads/main/FLY%20GUI"
+            ))()
+        end
+    })
 
 end
 
 -- ================================================================
--- Popup：腳本只做這一件事，其他全等使用者點「執行」
+-- Popup：腳本啟動後只顯示確認視窗，點「執行」才初始化所有功能
 -- ================================================================
 WindUI:Popup({
-    Title = "Xu-Hub",
-    Icon = "shield-check",
+    Title   = "Xu-Hub",
+    Icon    = "shield-check",
     Content = "歡迎使用 Xu-hub 點擊下方執行以啟動介面",
     Buttons = {
-        { Title = "取消", Callback = function() end, Variant = "Tertiary" },
-        { Title = "執行", Icon = "play", Callback = function() InitMainHub() end, Variant = "Primary" },
+        { Title = "取消", Callback = function() end,         Variant = "Tertiary" },
+        { Title = "執行", Icon = "play",
+          Callback = function() InitMainHub() end,           Variant = "Primary"  },
     }
 })
