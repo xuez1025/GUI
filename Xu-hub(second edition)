@@ -1114,6 +1114,89 @@ local function ThrowFlashbangRealistic(position, direction, speed, upwardForce)
     end)
 end
 
+-- 核心功能，抽成一個 function，方便呼叫
+local function JerkOff(speaker)
+    local humanoid = speaker.Character and speaker.Character:FindFirstChildWhichIsA("Humanoid")
+    local backpack = speaker:FindFirstChildWhichIsA("Backpack")
+    if not humanoid or not backpack then return end
+
+    local tool = Instance.new("Tool")
+    tool.Name = "打手槍神器"
+    tool.ToolTip = "in the stripped club. straight up \"jorking it\" . and by \"it\" , haha, well. let's justr say. My peanits."
+    tool.RequiresHandle = false
+    tool.Parent = backpack
+
+    local jorkin = false
+    local track = nil
+
+    local function stopTomfoolery()
+        jorkin = false
+        if track then
+            track:Stop()
+            track = nil
+        end
+    end
+
+    tool.Equipped:Connect(function() jorkin = true end)
+    tool.Unequipped:Connect(stopTomfoolery)
+    humanoid.Died:Connect(stopTomfoolery)
+
+    spawn(function()
+        while task.wait() do
+            if not jorkin then continue end
+            local isR15 = speaker.Character:FindFirstChild("Humanoid").RigType == Enum.HumanoidRigType.R15
+            if not track then
+                local anim = Instance.new("Animation")
+                anim.AnimationId = not isR15 and "rbxassetid://72042024" or "rbxassetid://698251653"
+                track = humanoid:LoadAnimation(anim)
+            end
+
+            track:Play()
+            track:AdjustSpeed(isR15 and 0.7 or 0.65)
+            track.TimePosition = 0.6
+            task.wait(0.1)
+            while track and track.TimePosition < (not isR15 and 0.65 or 0.7) do task.wait(0.1) end
+            if track then
+                track:Stop()
+                track = nil
+            end
+        end
+    end)
+end
+
+-- 核心功能
+local viewDied, viewChanged
+local viewing
+
+local function StopSpectate()
+    if viewDied then viewDied:Disconnect() viewDied = nil end
+    if viewChanged then viewChanged:Disconnect() viewChanged = nil end
+    workspace.CurrentCamera.CameraSubject = Players.LocalPlayer.Character
+    viewing = nil
+end
+
+local function SpectatePlayer(plr)
+    StopSpectate()
+    if not plr or not plr.Character then return end
+
+    viewing = plr
+    workspace.CurrentCamera.CameraSubject = viewing.Character
+    notify('Spectate', 'Viewing ' .. viewing.Name)
+
+    -- 玩家重生時重新鎖定鏡頭
+    viewDied = plr.CharacterAdded:Connect(function()
+        repeat wait() until plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+        workspace.CurrentCamera.CameraSubject = plr.Character
+    end)
+
+    -- 防止 CameraSubject 被改
+    viewChanged = workspace.CurrentCamera:GetPropertyChangedSignal("CameraSubject"):Connect(function()
+        if viewing and viewing.Character then
+            workspace.CurrentCamera.CameraSubject = viewing.Character
+        end
+    end)
+end
+
     local Tabs = {
         General  = Window:Tab({ Title = "通用",   Icon = "house" }),
         Server   = Window:Tab({ Title = "Server", Icon = "server" }),
@@ -1271,6 +1354,22 @@ end
     Tabs.PVP:Toggle({ Title = "視角鎖定", Desc = "鎖定目標玩家", Value = false,
         Callback = function(state) CamlockEnabled = state end
     })
+	Tabs.PVP:Toggle({
+    Title = "觀察玩家",
+    Desc = "開啟或關閉觀戰",
+    Value = false,
+    Callback = function(state)
+        if state then
+            if TargetPlayer then
+                SpectatePlayer(TargetPlayer)
+            else
+                notify("Spectate", "請先選擇玩家！")
+            end
+        else
+            StopSpectate()
+        end
+    end
+})
 
     -- Farm
     Tabs.Farm:Section({ Title = "Farm Setting" })
@@ -1439,20 +1538,29 @@ Tabs.Fun:Button({
     end
 })
 
+Tabs.Fun:Button({
+    Title = "打手槍",
+    Desc = "小心使用",
+    Callback = function()
+        local player = game.Players.LocalPlayer
+        if player then
+            JerkOff(player)
+        end
+    end
+})
+
     Tabs.Other:Section({ Title = "其他" })
 
 Tabs.Other:Button({
     Title = "FLY GUI",
     Callback = function()
 
-        -- 通知
         WindUI:Notify({
             Title = "FLY GUI",
             Content = "正在載入 FLY GUI...",
             Duration = 3
         })
 
-        -- 執行 FLY GUI
         loadstring(game:HttpGet("https://raw.githubusercontent.com/xuez1025/code/refs/heads/main/FLY%20GUI"))()
 
     end
