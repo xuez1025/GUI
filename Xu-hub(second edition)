@@ -1508,8 +1508,39 @@ local function InitMainHub()
     Players.PlayerAdded:Connect(function()    playerDropdown:Refresh(GetPlayerList()) end)
     Players.PlayerRemoving:Connect(function() playerDropdown:Refresh(GetPlayerList()) end)
 
-    -- [核心按鈕] Fly to Player：啟動 FTP 系統，每幀追蹤目標玩家 HRP
-    --           獨立 RenderStepped + Stepped 連線，與 SmartTeleport 完全不干涉
+Tabs.PVP:Toggle({
+    Title = "傳送玩家",
+    Desc = "開啟或關閉傳送",
+    Value = false,
+    Callback = function(state)
+        
+        if state then
+            
+            TPConnection = RunService.Heartbeat:Connect(function()
+                if TargetPlayer 
+                and TargetPlayer.Character 
+                and TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                and LocalPlayer.Character 
+                and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    
+                    -- 完全重疊
+                    LocalPlayer.Character.HumanoidRootPart.CFrame =
+                        TargetPlayer.Character.HumanoidRootPart.CFrame
+                end
+            end)
+            
+        else
+            
+            if TPConnection then
+                TPConnection:Disconnect()
+                TPConnection = nil
+            end
+            
+        end
+        
+    end
+})
+
     Tabs.PVP:Toggle({ Title = "Fly to Player", Desc = "飛向選定玩家", Value = false,
         Callback = function(state)
             if state then
